@@ -18,7 +18,7 @@ const C = {
 
 const KEY = "hana-data-v1";
 const WELCOME_KEY = "hana-welcome-v1";
-const APP_VERSION = "1.1.2";
+const APP_VERSION = "1.2.0";
 const MODEL = "claude-sonnet-4-6";
 
 // ---------- date helpers (local time, Honolulu-safe) ----------
@@ -67,6 +67,7 @@ export default function Hana() {
   const [showSplash, setShowSplash] = useState(false);
   const [editing, setEditing] = useState(null); // { id, field }
   const [editVal, setEditVal] = useState("");
+  const [listening, setListening] = useState(false);
   const areaRef = useRef(null);
   const fileRef = useRef(null);
   const splashCardRef = useRef(null);
@@ -74,6 +75,13 @@ export default function Hana() {
   const toastTimer = useRef(null);
   const pendingWrite = useRef(null);
   const writing = useRef(false);
+  const recogRef = useRef(null);
+  const baseTextRef = useRef("");
+  const finalRef = useRef("");
+
+  const speechSupport =
+    typeof window !== "undefined" &&
+    !!(window.SpeechRecognition || window.webkitSpeechRecognition);
 
   // ----- toast -----
   const say = (msg) => {
@@ -486,12 +494,111 @@ If there are no tasks, return {"new_tasks":[],"updates":[]}.`;
   };
 
   // ----- textarea autogrow -----
+  const growArea = () => {
+    const el = areaRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = Math.min(el.scrollHeight, 320) + "px";
+  };
   const onPasteChange = (e) => {
     setPaste(e.target.value);
     const el = e.target;
     el.style.height = "auto";
     el.style.height = Math.min(el.scrollHeight, 320) + "px";
   };
+
+  // ----- voice dictation (Web Speech API) -----
+  // Speaks straight into the paste box. The browser does the speech-to-text,
+  // so it needs microphone permission and only runs where the API exists.
+  const stopDictation = () => {
+    const r = recogRef.current;
+    if (r) {
+      try {
+        r.stop();
+      } catch (e) {
+        // already stopping
+      }
+    }
+  };
+
+  const startDictation = () => {
+    if (!speechSupport) {
+      say("Voice typing isn't supported in this browser");
+      return;
+    }
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const r = new SR();
+    r.lang = "en-US";
+    r.continuous = true;
+    r.interimResults = true;
+    // keep whatever is already in the box and append speech after it
+    const prev = paste.replace(/\s+$/, "");
+    baseTextRef.current = prev ? prev + " " : "";
+    finalRef.current = "";
+    r.onresult = (e) => {
+      let interim = "";
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const res = e.results[i];
+        if (res.isFinal) finalRef.current += res[0].transcript;
+        else interim += res[0].transcript;
+      }
+      setPaste(baseTextRef.current + finalRef.current + interim);
+      growArea();
+    };
+    r.onerror = (ev) => {
+      if (ev.error === "not-allowed" || ev.error === "service-not-allowed") {
+        say("Microphone is blocked. Allow mic access to dictate.");
+      } else if (ev.error !== "aborted" && ev.error !== "no-speech") {
+        say("Voice typing stopped");
+      }
+    };
+    r.onend = () => {
+      setListening(false);
+      recogRef.current = null;
+      setPaste((p) => p.replace(/[ ]+$/, ""));
+      growArea();
+    };
+    recogRef.current = r;
+    try {
+      r.start();
+      setListening(true);
+      say("Listening… speak your task");
+    } catch (e) {
+      setListening(false);
+    }
+  };
+
+  const toggleDictation = () => {
+    if (listening) stopDictation();
+    else startDictation();
+  };
+
+  // Cmd/Ctrl + Shift + M starts or stops dictation from anywhere on the page
+  useEffect(() => {
+    const onKey = (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && (e.key === "m" || e.key === "M")) {
+        e.preventDefault();
+        toggleDictation();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [listening, paste]);
+
+  // stop the mic if hana closes mid-listen
+  useEffect(() => {
+    return () => {
+      const r = recogRef.current;
+      if (r) {
+        try {
+          r.stop();
+        } catch (e) {
+          // ignore
+        }
+      }
+    };
+  }, []);
 
   // ----- small render pieces -----
   const Circle = ({ done, onClick, label }) => (
@@ -705,6 +812,7 @@ If there are no tasks, return {"new_tasks":[],"updates":[]}.`;
         @import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;1,9..144,500&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
         *:focus-visible { outline: 2px solid ${C.accent}; outline-offset: 2px; border-radius: 4px; }
         textarea::placeholder { color: ${C.sub}; opacity: 0.8; }
+        @keyframes hana-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
         @media (prefers-reduced-motion: reduce) {
           * { transition: none !important; animation: none !important; }
         }
@@ -802,6 +910,12 @@ If there are no tasks, return {"new_tasks":[],"updates":[]}.`;
               Uncheck anything that doesn't belong, then press Add. If something you paste matches
               a task you already have, hana updates that task instead of making a duplicate.
             </p>
+            <div style={helpEyebrow}>Voice typing</div>
+            <p style={helpPara}>
+              Tap the mic by the paste box, or press ⌘⇧M (Ctrl+Shift+M), and speak your task
+              straight in. Press it again to stop. Your browser does the listening, so it asks
+              for microphone permission the first time.
+            </p>
             <div style={helpEyebrow}>Dates</div>
             <p style={helpPara}>
               New tasks land on today unless your text names a deadline. Tap any date pill to
@@ -880,9 +994,39 @@ If there are no tasks, return {"new_tasks":[],"updates":[]}.`;
             }}
           />
           <div className="flex items-center justify-between" style={{ marginTop: 6 }}>
-            <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: C.sub }}>
-              ⌘↵ works too
-            </span>
+            <div className="flex items-center gap-2">
+              {speechSupport && (
+                <button
+                  onClick={toggleDictation}
+                  aria-label={listening ? "Stop voice typing" : "Start voice typing"}
+                  aria-pressed={listening}
+                  title={listening ? "Stop (⌘⇧M)" : "Speak your task (⌘⇧M)"}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    width: 30,
+                    height: 30,
+                    borderRadius: "50%",
+                    border: `1px solid ${listening ? C.danger : C.poolBorder}`,
+                    background: listening ? "#F7E3E0" : "#fff",
+                    color: listening ? C.danger : C.sub,
+                    cursor: "pointer",
+                    flexShrink: 0,
+                    animation: listening ? "hana-pulse 1.2s ease-in-out infinite" : "none",
+                  }}
+                >
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <rect x="9" y="3" width="6" height="11" rx="3" fill="currentColor" />
+                    <path d="M5 11a7 7 0 0 0 14 0" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                    <path d="M12 18v3" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                  </svg>
+                </button>
+              )}
+              <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: C.sub }}>
+                {listening ? "listening… ⌘⇧M to stop" : "⌘↵ to add · ⌘⇧M to speak"}
+              </span>
+            </div>
             <button
               onClick={extract}
               disabled={!paste.trim() || busy}
