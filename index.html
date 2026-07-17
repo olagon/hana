@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>hana · version check</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;1,9..144,500&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+  :root{
+    --bg:#EFF3EC; --ink:#22362B; --sub:#66756B; --line:#D5DED2;
+    --pool:#E6EDE4; --poolBorder:#C7D4C6; --card:#FBFCFA;
+    --accent:#744B63; --accentDark:#5E3B50; --accentSoft:#EFE6EC;
+    --done:#47694F; --danger:#A05252;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font-family:'IBM Plex Sans',system-ui,sans-serif;
+    min-height:100vh; display:flex; align-items:center; justify-content:center;
+    padding:20px; line-height:1.6;
+  }
+  .card{
+    background:var(--card); border:1px solid var(--line); border-radius:16px;
+    max-width:440px; width:100%; padding:28px 26px;
+    box-shadow:0 12px 40px rgba(34,54,43,0.08);
+  }
+  .brand{
+    font-family:'Fraunces',serif; font-style:italic; font-weight:500;
+    font-size:30px; letter-spacing:-0.01em; margin:0 0 2px;
+  }
+  .tag{color:var(--sub); font-size:13px; margin:0 0 20px;}
+  .badge{
+    display:inline-block; font-family:'IBM Plex Mono',monospace; font-size:12px;
+    padding:3px 10px; border-radius:999px; margin-bottom:14px;
+  }
+  .badge.ok{background:#E4EFE6; color:var(--done);}
+  .badge.new{background:#F6E5E1; color:var(--danger);}
+  .badge.unknown{background:var(--pool); color:var(--sub);}
+  h1{font-family:'Fraunces',serif; font-style:italic; font-weight:500; font-size:22px; margin:0 0 8px;}
+  p{margin:0 0 14px;}
+  .versions{
+    font-family:'IBM Plex Mono',monospace; font-size:12.5px; color:var(--sub);
+    background:var(--pool); border:1px solid var(--poolBorder);
+    border-radius:10px; padding:10px 12px; margin:0 0 18px;
+  }
+  .versions b{color:var(--ink); font-weight:500;}
+  .eyebrow{
+    font-size:11px; letter-spacing:0.09em; text-transform:uppercase;
+    color:var(--sub); margin:18px 0 8px;
+  }
+  ol{margin:0 0 8px; padding-left:20px;}
+  ol li{margin-bottom:8px;}
+  .btn{
+    display:inline-block; text-decoration:none; text-align:center;
+    background:var(--accent); color:#fff; border:none; border-radius:999px;
+    padding:11px 20px; font-size:15px; font-weight:500; cursor:pointer;
+    margin-top:6px; transition:background 120ms ease;
+  }
+  .btn:hover{background:var(--accentDark);}
+  .btn.block{display:block; width:100%;}
+  .links{margin-top:18px; font-family:'IBM Plex Mono',monospace; font-size:12px;}
+  .links a{color:var(--accent);}
+  .foot{margin-top:22px; padding-top:14px; border-top:1px solid var(--line); font-size:12px; color:var(--sub); font-family:'IBM Plex Mono',monospace;}
+</style>
+</head>
+<body>
+  <main class="card" id="card" aria-live="polite">
+    <div class="brand">hana</div>
+    <p class="tag">version check</p>
+    <div id="body"></div>
+    <div class="foot" id="foot"></div>
+  </main>
+
+<script>
+  // =====================================================================
+  // UPDATE THESE TWO LINES EACH TIME YOU PUBLISH A NEW VERSION OF hana.
+  // LATEST_VERSION must match the APP_VERSION in hana.jsx.
+  // LATEST_URL is the public artifact link for that newest version.
+  // =====================================================================
+  var LATEST_VERSION = "1.6.0";
+  var LATEST_URL = "https://claude.ai/public/artifacts/3ccbbdd1-06e2-446d-b1e6-0b97d4313ee9";
+  // =====================================================================
+
+  // read the visitor's running version from the ?v= query, sanitized
+  function getYourVersion() {
+    var raw = new URLSearchParams(window.location.search).get("v") || "";
+    var clean = raw.replace(/[^0-9.]/g, "").slice(0, 20);
+    return /^\d+(\.\d+)*$/.test(clean) ? clean : "";
+  }
+
+  // compare two dotted versions: 1 if a>b, -1 if a<b, 0 if equal
+  function cmp(a, b) {
+    var pa = a.split(".").map(Number), pb = b.split(".").map(Number);
+    var len = Math.max(pa.length, pb.length);
+    for (var i = 0; i < len; i++) {
+      var x = pa[i] || 0, y = pb[i] || 0;
+      if (x > y) return 1;
+      if (x < y) return -1;
+    }
+    return 0;
+  }
+
+  function el(tag, cls, text) {
+    var n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text != null) n.textContent = text;
+    return n;
+  }
+
+  function badge(kind, text) {
+    var b = el("div", "badge " + kind, text);
+    return b;
+  }
+
+  function versionsBox(you) {
+    var box = el("div", "versions");
+    var yline = el("div");
+    yline.appendChild(document.createTextNode("Your version  "));
+    yline.appendChild(el("b", null, you ? "v" + you : "unknown"));
+    var lline = el("div");
+    lline.appendChild(document.createTextNode("Latest version  "));
+    lline.appendChild(el("b", null, "v" + LATEST_VERSION));
+    box.appendChild(yline);
+    box.appendChild(lline);
+    return box;
+  }
+
+  function upgradeSteps() {
+    var wrap = document.createElement("div");
+    wrap.appendChild(el("div", "eyebrow", "How to upgrade"));
+    var ol = document.createElement("ol");
+    var steps = [
+      "On your current hana, open the upgrade panel and press Export. Save the file somewhere you can find it.",
+      "Open the new hana with the button below.",
+      "On the new hana, open the upgrade panel and press Import, then pick the file you just saved."
+    ];
+    steps.forEach(function (s) { ol.appendChild(el("li", null, s)); });
+    wrap.appendChild(ol);
+    wrap.appendChild(el("p", null, "Your tasks, dates, projects, done, and Holding Tank all come across."));
+    var a = el("a", "btn block", "Open the latest hana");
+    a.href = LATEST_URL;
+    a.rel = "noopener";
+    wrap.appendChild(a);
+    return wrap;
+  }
+
+  function render() {
+    var you = getYourVersion();
+    var body = document.getElementById("body");
+    body.innerHTML = "";
+
+    var state; // ok | new | unknown | ahead
+    if (!you) state = "unknown";
+    else {
+      var c = cmp(you, LATEST_VERSION);
+      state = c < 0 ? "new" : c > 0 ? "ahead" : "ok";
+    }
+
+    if (state === "ok") {
+      body.appendChild(badge("ok", "up to date"));
+      body.appendChild(el("h1", null, "You have the latest hana"));
+      body.appendChild(el("p", null, "Nothing to do. You are on the current version."));
+      body.appendChild(versionsBox(you));
+    } else if (state === "new") {
+      body.appendChild(badge("new", "update available"));
+      body.appendChild(el("h1", null, "A newer hana is out"));
+      body.appendChild(el("p", null, "There is a newer version. Moving over takes about a minute and keeps all of your tasks."));
+      body.appendChild(versionsBox(you));
+      body.appendChild(upgradeSteps());
+    } else if (state === "ahead") {
+      body.appendChild(badge("ok", "all set"));
+      body.appendChild(el("h1", null, "You are on a newer build"));
+      body.appendChild(el("p", null, "Your version is newer than the one listed here, so you are already ahead."));
+      body.appendChild(versionsBox(you));
+    } else {
+      body.appendChild(badge("unknown", "latest version"));
+      body.appendChild(el("h1", null, "The latest hana"));
+      body.appendChild(el("p", null, "Open this page from inside hana's upgrade panel and it will tell you if you are current. For now, here is the newest version and how to get it."));
+      body.appendChild(versionsBox(""));
+      body.appendChild(upgradeSteps());
+    }
+  }
+
+  function renderFoot() {
+    var foot = document.getElementById("foot");
+    foot.innerHTML = "";
+    foot.appendChild(document.createTextNode("hana · "));
+    var a = el("a", null, "source on GitHub");
+    a.href = "https://github.com/olagon/hana";
+    a.rel = "noopener";
+    a.style.color = "var(--accent)";
+    foot.appendChild(a);
+  }
+
+  render();
+  renderFoot();
+</script>
+</body>
+</html>

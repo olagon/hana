@@ -18,8 +18,10 @@ const C = {
 
 const KEY = "hana-data-v1";
 const WELCOME_KEY = "hana-welcome-v1";
-const APP_VERSION = "1.5.2";
+const APP_VERSION = "1.6.0";
 const MODEL = "claude-sonnet-4-6";
+// GitHub Pages page that compares this version to the latest and shows how to upgrade
+const UPDATE_PAGE = "https://olagon.github.io/hana/";
 
 // ---------- date helpers (local time, Honolulu-safe) ----------
 const pad = (n) => String(n).padStart(2, "0");
@@ -1055,9 +1057,10 @@ If there are no tasks, return {"new_tasks":[],"updates":[]}.`;
             </p>
             <div style={helpEyebrow}>Getting the latest</div>
             <p style={helpPara}>
-              The newest link always lives on the GitHub page. When you want to move up, open
-              GitHub, grab the current link, and use hana from there. Nothing forces you to, an
-              older copy keeps working, you just miss newer features.
+              Press Check for updates below. It opens a quick page that compares your version to
+              the newest one and, if there is a newer hana, gives you the link and the steps.
+              Nothing forces you to move, an older copy keeps working, you just miss newer
+              features.
             </p>
             <div style={helpEyebrow}>Bring your tasks along</div>
             <p style={helpPara}>
@@ -1086,12 +1089,18 @@ If there are no tasks, return {"new_tasks":[],"updates":[]}.`;
                 Import tasks
               </button>
               <a
-                href="https://github.com/olagon/hana"
+                href={`${UPDATE_PAGE}?v=${APP_VERSION}`}
                 target="_blank"
                 rel="noopener noreferrer"
-                style={{ ...ghostBtn, textDecoration: "none", display: "inline-block" }}
+                style={{
+                  ...ghostBtn,
+                  textDecoration: "none",
+                  display: "inline-block",
+                  borderColor: C.accent,
+                  color: C.accent,
+                }}
               >
-                Latest link on GitHub
+                Check for updates
               </a>
             </div>
           </div>
