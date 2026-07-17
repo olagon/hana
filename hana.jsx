@@ -18,7 +18,7 @@ const C = {
 
 const KEY = "hana-data-v1";
 const WELCOME_KEY = "hana-welcome-v1";
-const APP_VERSION = "1.3.0";
+const APP_VERSION = "1.4.0";
 const MODEL = "claude-sonnet-4-6";
 
 // ---------- date helpers (local time, Honolulu-safe) ----------
@@ -75,6 +75,7 @@ export default function Hana() {
   const toastTimer = useRef(null);
   const pendingWrite = useRef(null);
   const writing = useRef(false);
+  const applyBtnRef = useRef(null);
 
   // ----- toast -----
   const say = (msg) => {
@@ -157,22 +158,12 @@ export default function Hana() {
           setShowSplash(true);
         }
       }
+      // Dates never change on their own. We only backfill a date for any task
+      // that somehow has none, so it still sorts into a bucket.
       const t = todayStr();
-      let moved = 0;
-      const rolled = list.map((tk) => {
-        // holding tank tasks keep their own dates; only active tasks roll forward
-        if (!tk.done && !tk.holding && (!isDateStr(tk.due) || tk.due < t)) {
-          moved += 1;
-          return { ...tk, due: t };
-        }
-        return tk;
-      });
-      setTasks(rolled);
+      const normalized = list.map((tk) => (isDateStr(tk.due) ? tk : { ...tk, due: t }));
+      setTasks(normalized);
       setLoaded(true);
-      if (moved > 0) {
-        persist(rolled);
-        say(`Moved ${moved} unfinished ${moved === 1 ? "task" : "tasks"} to today`);
-      }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -214,7 +205,8 @@ export default function Hana() {
       (a, b) => a.due.localeCompare(b.due) || (a.createdAt || "").localeCompare(b.createdAt || "")
     );
     return [
-      { label: "Today", items: sorted.filter((x) => x.due <= t) },
+      { label: "Late", items: sorted.filter((x) => x.due < t) },
+      { label: "Today", items: sorted.filter((x) => x.due === t) },
       { label: "Tomorrow", items: sorted.filter((x) => x.due === tm) },
       { label: "This week", items: sorted.filter((x) => x.due > tm && x.due <= wk) },
       { label: "Later", items: sorted.filter((x) => x.due > wk) },
@@ -332,6 +324,12 @@ If there are no tasks, return {"new_tasks":[],"updates":[]}.`;
         .filter((u) => Object.keys(u.changes).length > 0);
 
       setReview({ news, updates });
+      // put keyboard focus on Add so Enter accepts everything hana found
+      if (news.length || updates.length) {
+        setTimeout(() => {
+          if (applyBtnRef.current) applyBtnRef.current.focus({ preventScroll: true });
+        }, 0);
+      }
     } catch (e) {
       setErr("Couldn't finish reading that. Try again, paste a smaller chunk, or add it as one task.");
     } finally {
@@ -344,13 +342,13 @@ If there are no tasks, return {"new_tasks":[],"updates":[]}.`;
     const t = todayStr();
     const now = new Date().toISOString();
     const chosenNew = review.news
-      .filter((n) => n.checked)
+      .filter((n) => n.checked && typeof n.title === "string" && n.title.trim())
       .map((n) => ({
         id: uid(),
-        title: n.title,
-        project: n.project,
+        title: n.title.trim(),
+        project: typeof n.project === "string" && n.project.trim() ? n.project.trim() : null,
         notes: n.notes,
-        due: n.due,
+        due: isDateStr(n.due) ? n.due : t,
         holding: !!n.holding,
         done: false,
         createdAt: now,
@@ -515,6 +513,24 @@ If there are no tasks, return {"new_tasks":[],"updates":[]}.`;
     el.style.height = Math.min(el.scrollHeight, 320) + "px";
   };
 
+  // Enter inside any staging field accepts everything hana found
+  const reviewKey = (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      applyReview();
+    }
+  };
+
+  // Escape leaves the help page and goes back to the tasks
+  useEffect(() => {
+    if (!showHelp) return;
+    const onKey = (e) => {
+      if (e.key === "Escape") setShowHelp(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [showHelp]);
+
   // ----- small render pieces -----
   const Circle = ({ done, onClick, label }) => (
     <button
@@ -544,10 +560,18 @@ If there are no tasks, return {"new_tasks":[],"updates":[]}.`;
     const isEditTitle = editing && editing.id === t.id && editing.field === "title";
     const isEditProject = editing && editing.id === t.id && editing.field === "project";
     const isEditDue = editing && editing.id === t.id && editing.field === "due";
+    const late = !t.done && isDateStr(t.due) && t.due < todayStr();
     return (
       <div
         className="flex items-start gap-3 py-2.5"
-        style={{ borderBottom: `1px solid ${C.line}` }}
+        style={{
+          borderBottom: `1px solid ${C.line}`,
+          // a quiet cue that a task is past its date
+          borderLeft: late ? `2px solid ${C.danger}` : "2px solid transparent",
+          paddingLeft: 8,
+          marginLeft: -10,
+          background: late ? "rgba(160, 82, 82, 0.04)" : "transparent",
+        }}
       >
         <Circle done={t.done} onClick={() => toggleDone(t.id)} label={t.done ? "Mark not done" : "Mark done"} />
         <div className="flex-1 min-w-0">
@@ -621,12 +645,13 @@ If there are no tasks, return {"new_tasks":[],"updates":[]}.`;
                   style={{
                     fontFamily: "'IBM Plex Mono', monospace",
                     fontSize: 11.5,
-                    color: t.due <= todayStr() ? C.accent : C.sub,
-                    background: C.pool,
+                    color: late ? C.danger : t.due === todayStr() ? C.accent : C.sub,
+                    background: late ? "#F6E5E1" : C.pool,
                     border: "none",
                     borderRadius: 999,
                     padding: "2px 8px",
                     cursor: "pointer",
+                    fontWeight: late ? 500 : 400,
                   }}
                 >
                   {displayDate(t.due)}
@@ -689,7 +714,7 @@ If there are no tasks, return {"new_tasks":[],"updates":[]}.`;
                   cursor: "pointer",
                 }}
               >
-                {t.holding ? "→ Active" : "→ Tank"}
+                {t.holding ? "← Active" : "→ Tank"}
               </button>
             )}
           </div>
@@ -844,23 +869,43 @@ If there are no tasks, return {"new_tasks":[],"updates":[]}.`;
             <div style={helpEyebrow}>Dates</div>
             <p style={helpPara}>
               New tasks land on today unless your text names a deadline. Tap any date pill to
-              change it. Unfinished tasks move to today each time hana opens, so nothing slips
-              into the past.
+              change it. Dates never change on their own. Anything past its date gathers under a
+              Late heading at the top of the list, tinted so it stands out, until you finish it
+              or give it a new date.
             </p>
             <div style={helpEyebrow}>Active and the Holding Tank</div>
             <p style={helpPara}>
               hana keeps two lists behind the tabs at the top. Active is what you are working on
               now or soon. The Holding Tank is a backlog for someday, on hold, or waiting-on
-              things. Tank tasks can still carry due dates, but they do not roll forward to today
-              like active ones do, so they wait quietly until you want them. Move any task with
-              → Tank or → Active, and when hana reads your pasted text it sorts clear backlog
-              items straight into the tank for you.
+              things. Both keep whatever due dates you set, and nothing moves on its own. Move any
+              task with → Tank or ← Active, and when hana reads your pasted text it sorts clear
+              backlog items straight into the tank for you.
+            </p>
+            <div style={helpEyebrow}>Reviewing what hana finds</div>
+            <p style={helpPara}>
+              After you press Make tasks, each task waits in a review box. Edit its title, date,
+              or project right there, uncheck anything you don't want, or flip it between Active
+              and Tank. Press Enter to accept everything at once, or click Add.
             </p>
             <div style={helpEyebrow}>Everyday use</div>
             <p style={helpPara}>
               Tap the circle to finish a task. Finished tasks rest in the Pau section at the
               bottom of the Active tab. Tap a title to reword it, tap + project to group it, and
               use the project chips to filter. The × removes a task for good.
+            </p>
+            <div style={helpEyebrow}>Talk instead of type</div>
+            <p style={helpPara}>
+              hana has no mic of its own, but the paste box is a normal text field, so your
+              device's own dictation types right into it. Tap into the box first, start
+              dictation, speak your tasks, then press Make tasks.
+            </p>
+            <p style={helpPara}>
+              On a Mac, turn on Dictation in System Settings under Keyboard, then use its
+              shortcut, usually the Globe or Fn key, or pressing Control twice. On Windows,
+              press the Windows key and H to open voice typing. On an iPhone or iPad, tap the
+              microphone on the on-screen keyboard. On Android, tap the microphone on the Gboard
+              keyboard. If a mic key is missing, dictation just needs turning on in your device's
+              keyboard or accessibility settings.
             </p>
             <div style={helpEyebrow}>What you need</div>
             <p style={helpPara}>
@@ -912,7 +957,11 @@ If there are no tasks, return {"new_tasks":[],"updates":[]}.`;
             value={paste}
             onChange={onPasteChange}
             onKeyDown={(e) => {
-              if ((e.metaKey || e.ctrlKey) && e.key === "Enter") extract();
+              if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+                e.preventDefault();
+                if (review) applyReview();
+                else extract();
+              }
             }}
             placeholder="Paste an email, meeting notes, or just type what needs doing…"
             rows={3}
@@ -1036,40 +1085,102 @@ If there are no tasks, return {"new_tasks":[],"updates":[]}.`;
                   Found {review.news.length} new
                   {review.updates.length > 0 ? ` · ${review.updates.length} update${review.updates.length > 1 ? "s" : ""}` : ""}
                 </div>
-                {review.news.map((n, i) => (
-                  <label
-                    key={`n${i}`}
-                    className="flex items-start gap-2.5 py-1.5"
-                    style={{ cursor: "pointer" }}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={n.checked}
-                      onChange={() =>
-                        setReview((r) => ({
-                          ...r,
-                          news: r.news.map((x, j) => (j === i ? { ...x, checked: !x.checked } : x)),
-                        }))
-                      }
-                      style={{ marginTop: 4, accentColor: C.accent }}
-                    />
-                    <span style={{ fontSize: 14.5, lineHeight: 1.45 }}>
-                      {n.title}
-                      <span
-                        style={{
-                          fontFamily: "'IBM Plex Mono', monospace",
-                          fontSize: 11,
-                          color: C.sub,
-                          marginLeft: 8,
-                        }}
-                      >
-                        {displayDate(n.due)}
-                        {n.project ? ` · ${n.project}` : ""}
-                        {n.holding ? " · Tank" : ""}
-                      </span>
-                    </span>
-                  </label>
-                ))}
+                {review.news.map((n, i) => {
+                  const setN = (patch) =>
+                    setReview((r) => ({
+                      ...r,
+                      news: r.news.map((x, j) => (j === i ? { ...x, ...patch } : x)),
+                    }));
+                  return (
+                    <div
+                      key={`n${i}`}
+                      className="flex items-start gap-2.5 py-2"
+                      style={{ borderBottom: `1px solid ${C.line}` }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={n.checked}
+                        onChange={() => setN({ checked: !n.checked })}
+                        aria-label="Include this task"
+                        style={{ marginTop: 7, accentColor: C.accent, flexShrink: 0 }}
+                      />
+                      <div className="flex-1 min-w-0">
+                        <input
+                          value={n.title}
+                          onChange={(e) => setN({ title: e.target.value })}
+                          onKeyDown={reviewKey}
+                          aria-label="Task title"
+                          style={{
+                            width: "100%",
+                            font: "inherit",
+                            fontSize: 14.5,
+                            color: C.ink,
+                            background: "#fff",
+                            border: `1px solid ${C.line}`,
+                            borderRadius: 6,
+                            padding: "4px 8px",
+                          }}
+                        />
+                        <div className="flex items-center gap-2 flex-wrap" style={{ marginTop: 5 }}>
+                          <input
+                            type="date"
+                            value={isDateStr(n.due) ? n.due : ""}
+                            onChange={(e) => {
+                              if (isDateStr(e.target.value)) setN({ due: e.target.value });
+                            }}
+                            onKeyDown={reviewKey}
+                            aria-label="Due date"
+                            style={{
+                              fontFamily: "'IBM Plex Mono', monospace",
+                              fontSize: 11.5,
+                              color: C.ink,
+                              border: `1px solid ${C.poolBorder}`,
+                              borderRadius: 6,
+                              padding: "2px 6px",
+                              background: "#fff",
+                            }}
+                          />
+                          <input
+                            value={n.project || ""}
+                            list="hana-projects"
+                            placeholder="+ project"
+                            onChange={(e) => {
+                              const v = e.target.value;
+                              setN({ project: v.trim() ? v : null });
+                            }}
+                            onKeyDown={reviewKey}
+                            aria-label="Project"
+                            style={{
+                              fontSize: 11.5,
+                              color: C.ink,
+                              border: `1px solid ${C.poolBorder}`,
+                              borderRadius: 6,
+                              padding: "2px 7px",
+                              width: 120,
+                              background: "#fff",
+                            }}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setN({ holding: !n.holding })}
+                            title={n.holding ? "Goes to the Holding Tank" : "Goes to Active"}
+                            style={{
+                              fontSize: 11.5,
+                              color: n.holding ? C.accent : C.sub,
+                              background: n.holding ? C.accentSoft : "transparent",
+                              border: n.holding ? "none" : `1px dashed ${C.line}`,
+                              borderRadius: 999,
+                              padding: "2px 9px",
+                              cursor: "pointer",
+                            }}
+                          >
+                            {n.holding ? "Tank" : "Active"}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
                 {review.updates.map((u, i) => (
                   <label
                     key={`u${i}`}
@@ -1114,6 +1225,7 @@ If there are no tasks, return {"new_tasks":[],"updates":[]}.`;
                     Discard
                   </button>
                   <button
+                    ref={applyBtnRef}
                     onClick={applyReview}
                     style={{
                       background: C.accent,
@@ -1224,9 +1336,9 @@ If there are no tasks, return {"new_tasks":[],"updates":[]}.`;
                 fontSize: 11,
                 letterSpacing: "0.09em",
                 textTransform: "uppercase",
-                color: C.sub,
+                color: b.label === "Late" ? C.danger : C.sub,
                 paddingBottom: 6,
-                borderBottom: `1px solid ${C.line}`,
+                borderBottom: `1px solid ${b.label === "Late" ? "#E3C9BE" : C.line}`,
               }}
             >
               {b.label} · {b.items.length}
@@ -1288,7 +1400,7 @@ If there are no tasks, return {"new_tasks":[],"updates":[]}.`;
                 fontFamily: "'IBM Plex Mono', monospace",
               }}
             >
-              Unfinished tasks move to today each time hana opens.
+              Dates stay where you set them. Anything overdue waits under Late.
             </div>
           )}
           <div
@@ -1385,8 +1497,8 @@ If there are no tasks, return {"new_tasks":[],"updates":[]}.`;
             <div style={helpEyebrow}>Dates handle themselves</div>
             <p style={helpPara}>
               New tasks land on today unless your text names a deadline. Tap any date to
-              change it. Unfinished tasks move to today each time hana opens, so nothing slips
-              into the past.
+              change it. Dates stay put, and anything overdue shows up under a Late heading at
+              the top so it never hides.
             </p>
             <div style={helpEyebrow}>Runs on your Claude account</div>
             <p style={helpPara}>
