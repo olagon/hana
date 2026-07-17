@@ -18,7 +18,7 @@ const C = {
 
 const KEY = "hana-data-v1";
 const WELCOME_KEY = "hana-welcome-v1";
-const APP_VERSION = "1.2.0";
+const APP_VERSION = "1.3.0";
 const MODEL = "claude-sonnet-4-6";
 
 // ---------- date helpers (local time, Honolulu-safe) ----------
@@ -67,7 +67,7 @@ export default function Hana() {
   const [showSplash, setShowSplash] = useState(false);
   const [editing, setEditing] = useState(null); // { id, field }
   const [editVal, setEditVal] = useState("");
-  const [listening, setListening] = useState(false);
+  const [tab, setTab] = useState("active"); // "active" | "holding"
   const areaRef = useRef(null);
   const fileRef = useRef(null);
   const splashCardRef = useRef(null);
@@ -75,13 +75,6 @@ export default function Hana() {
   const toastTimer = useRef(null);
   const pendingWrite = useRef(null);
   const writing = useRef(false);
-  const recogRef = useRef(null);
-  const baseTextRef = useRef("");
-  const finalRef = useRef("");
-
-  const speechSupport =
-    typeof window !== "undefined" &&
-    !!(window.SpeechRecognition || window.webkitSpeechRecognition);
 
   // ----- toast -----
   const say = (msg) => {
@@ -167,7 +160,8 @@ export default function Hana() {
       const t = todayStr();
       let moved = 0;
       const rolled = list.map((tk) => {
-        if (!tk.done && (!isDateStr(tk.due) || tk.due < t)) {
+        // holding tank tasks keep their own dates; only active tasks roll forward
+        if (!tk.done && !tk.holding && (!isDateStr(tk.due) || tk.due < t)) {
           moved += 1;
           return { ...tk, due: t };
         }
@@ -193,6 +187,8 @@ export default function Hana() {
 
   // ----- derived -----
   const open = useMemo(() => tasks.filter((t) => !t.done), [tasks]);
+  const activeOpen = useMemo(() => open.filter((t) => !t.holding), [open]);
+  const heldOpen = useMemo(() => open.filter((t) => t.holding), [open]);
   const pau = useMemo(
     () => tasks.filter((t) => t.done).sort((a, b) => (b.completedAt || "").localeCompare(a.completedAt || "")),
     [tasks]
@@ -203,9 +199,11 @@ export default function Hana() {
     return Array.from(s).sort();
   }, [tasks]);
 
+  // the list feeding the buckets depends on which tab is showing
+  const tabOpen = tab === "holding" ? heldOpen : activeOpen;
   const visible = useMemo(
-    () => open.filter((t) => (filter ? t.project === filter : true)),
-    [open, filter]
+    () => tabOpen.filter((t) => (filter ? t.project === filter : true)),
+    [tabOpen, filter]
   );
 
   const buckets = useMemo(() => {
@@ -231,11 +229,13 @@ export default function Hana() {
     setErr("");
     setReview(null);
     const t = todayStr();
-    const openList = open.map(({ id, title, project, due }) => ({ id, title, project, due }));
+    const openList = open.map(({ id, title, project, due, holding }) => ({ id, title, project, due, holding: !!holding }));
     const prompt = `You are the extraction engine inside "hana", a personal task manager.
 Today is ${weekdayOf(t)}, ${t} (Pacific/Honolulu).
 
-EXISTING OPEN TASKS (JSON):
+hana has two places for a task. The ACTIVE list is for things the user is working on now or soon. The HOLDING TANK is a backlog for things that are real tasks but not for right now - someday/maybe ideas, things on hold, waiting on someone else, or anything with no urgency. A task in either place can still have a due date. The "holding" field (true or false) says where a task belongs.
+
+EXISTING OPEN TASKS (JSON, includes each task's current "holding" state):
 ${JSON.stringify(openList)}
 
 EXISTING PROJECT NAMES (JSON):
@@ -249,14 +249,15 @@ ${text}
 Extract real, actionable tasks that belong to the user.
 Rules:
 - Ignore marketing calls to action, newsletters, FYI-only lines, and tasks clearly owned by someone else.
-- Put an item in "updates" ONLY when it is unmistakably the SAME task as an existing one - rescheduling it, fixing its wording, or adding detail to it. A task with a different person, company, deliverable, or action is a NEW task, even when it shares a topic, project, or due date with an existing one. Example: "call Forest about the RFP" is NOT an update to "call Mysa about the RFP" - it is a new task. When in doubt, create a new task. In an update, only include the fields that should change.
+- Put an item in "updates" ONLY when it is unmistakably the SAME task as an existing one - rescheduling it, fixing its wording, adding detail, or moving it between the active list and the holding tank. A task with a different person, company, deliverable, or action is a NEW task, even when it shares a topic, project, or due date with an existing one. Example: "call Forest about the RFP" is NOT an update to "call Mysa about the RFP" - it is a new task. When in doubt, create a new task. In an update, only include the fields that should change.
 - Set "due" (YYYY-MM-DD) only when the text states or clearly implies a deadline. Resolve relative dates like "Friday" or "next week" from today's date. Otherwise use null.
+- Set "holding" to true when the task reads as backlog, someday/maybe, on hold, waiting on someone, low priority, or explicitly "not now" / "later" / "eventually". Set it to false for anything the user should act on now or soon. When in doubt, use false. In an update, include "holding" only when the task should move between the active list and the tank.
 - Reuse an existing project name when one fits. Suggest a new short project name only when the text makes it obvious. Otherwise null.
 - Titles are short and verb-first, under 10 words.
 - "notes" is one short sentence of context, or "".
 
 Respond with ONLY this JSON, no markdown fences, no commentary:
-{"new_tasks":[{"title":"","project":null,"due":null,"notes":""}],"updates":[{"id":"","title":"","due":"","project":"","notes":""}]}
+{"new_tasks":[{"title":"","project":null,"due":null,"notes":"","holding":false}],"updates":[{"id":"","title":"","due":"","project":"","notes":"","holding":false}]}
 If there are no tasks, return {"new_tasks":[],"updates":[]}.`;
 
     try {
@@ -298,13 +299,16 @@ If there are no tasks, return {"new_tasks":[],"updates":[]}.`;
         .filter((n) => n && typeof n.title === "string" && n.title.trim())
         .filter((n) => !openTitles.has(n.title.trim().toLowerCase()))
         .map((n) => {
+          const holding = n.holding === true;
+          // active tasks never sit in the past; tank tasks keep whatever date was given
           let due = isDateStr(n.due) ? n.due : t;
-          if (due < t) due = t;
+          if (!holding && due < t) due = t;
           return {
             title: n.title.trim(),
             project: typeof n.project === "string" && n.project.trim() ? n.project.trim() : null,
             notes: typeof n.notes === "string" ? n.notes.trim() : "",
             due,
+            holding,
             checked: true,
           };
         });
@@ -316,11 +320,13 @@ If there are no tasks, return {"new_tasks":[],"updates":[]}.`;
           const changes = {};
           if (typeof u.title === "string" && u.title.trim() && u.title.trim() !== target.title)
             changes.title = u.title.trim();
-          if (isDateStr(u.due) && u.due !== target.due) changes.due = u.due < t ? t : u.due;
+          const willHold = typeof u.holding === "boolean" ? u.holding : !!target.holding;
+          if (isDateStr(u.due) && u.due !== target.due) changes.due = !willHold && u.due < t ? t : u.due;
           if (typeof u.project === "string" && u.project.trim() && u.project.trim() !== target.project)
             changes.project = u.project.trim();
           if (typeof u.notes === "string" && u.notes.trim() && u.notes.trim() !== target.notes)
             changes.notes = u.notes.trim();
+          if (typeof u.holding === "boolean" && u.holding !== !!target.holding) changes.holding = u.holding;
           return { id: u.id, target, changes, checked: true };
         })
         .filter((u) => Object.keys(u.changes).length > 0);
@@ -345,6 +351,7 @@ If there are no tasks, return {"new_tasks":[],"updates":[]}.`;
         project: n.project,
         notes: n.notes,
         due: n.due,
+        holding: !!n.holding,
         done: false,
         createdAt: now,
         completedAt: null,
@@ -376,6 +383,7 @@ If there are no tasks, return {"new_tasks":[],"updates":[]}.`;
         project: null,
         notes: "",
         due: todayStr(),
+        holding: tab === "holding",
         done: false,
         createdAt: now,
         completedAt: null,
@@ -399,6 +407,10 @@ If there are no tasks, return {"new_tasks":[],"updates":[]}.`;
   const removeTask = (id) => mutate((prev) => prev.filter((tk) => tk.id !== id));
   const setField = (id, field, value) =>
     mutate((prev) => prev.map((tk) => (tk.id === id ? { ...tk, [field]: value } : tk)));
+  const moveHolding = (id, toHolding) => {
+    mutate((prev) => prev.map((tk) => (tk.id === id ? { ...tk, holding: toHolding } : tk)));
+    say(toHolding ? "Moved to Holding Tank" : "Moved to Active");
+  };
   const clearPau = () => {
     mutate((prev) => prev.filter((tk) => !tk.done));
     say("Cleared pau");
@@ -447,8 +459,9 @@ If there are no tasks, return {"new_tasks":[],"updates":[]}.`;
         .filter((x) => x && typeof x.title === "string" && x.title.trim())
         .map((x) => {
           const done = !!x.done;
+          const holding = x.holding === true;
           let due = isDateStr(x.due) ? x.due : addDays(t, 7);
-          if (!done && due < t) due = t;
+          if (!done && !holding && due < t) due = t;
           return {
             id: typeof x.id === "string" && x.id ? x.id : uid(),
             title: x.title.trim(),
@@ -456,6 +469,7 @@ If there are no tasks, return {"new_tasks":[],"updates":[]}.`;
               typeof x.project === "string" && x.project.trim() ? x.project.trim() : null,
             notes: typeof x.notes === "string" ? x.notes : "",
             due,
+            holding,
             done,
             createdAt:
               typeof x.createdAt === "string" ? x.createdAt : new Date().toISOString(),
@@ -494,111 +508,12 @@ If there are no tasks, return {"new_tasks":[],"updates":[]}.`;
   };
 
   // ----- textarea autogrow -----
-  const growArea = () => {
-    const el = areaRef.current;
-    if (!el) return;
-    el.style.height = "auto";
-    el.style.height = Math.min(el.scrollHeight, 320) + "px";
-  };
   const onPasteChange = (e) => {
     setPaste(e.target.value);
     const el = e.target;
     el.style.height = "auto";
     el.style.height = Math.min(el.scrollHeight, 320) + "px";
   };
-
-  // ----- voice dictation (Web Speech API) -----
-  // Speaks straight into the paste box. The browser does the speech-to-text,
-  // so it needs microphone permission and only runs where the API exists.
-  const stopDictation = () => {
-    const r = recogRef.current;
-    if (r) {
-      try {
-        r.stop();
-      } catch (e) {
-        // already stopping
-      }
-    }
-  };
-
-  const startDictation = () => {
-    if (!speechSupport) {
-      say("Voice typing isn't supported in this browser");
-      return;
-    }
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    const r = new SR();
-    r.lang = "en-US";
-    r.continuous = true;
-    r.interimResults = true;
-    // keep whatever is already in the box and append speech after it
-    const prev = paste.replace(/\s+$/, "");
-    baseTextRef.current = prev ? prev + " " : "";
-    finalRef.current = "";
-    r.onresult = (e) => {
-      let interim = "";
-      for (let i = e.resultIndex; i < e.results.length; i++) {
-        const res = e.results[i];
-        if (res.isFinal) finalRef.current += res[0].transcript;
-        else interim += res[0].transcript;
-      }
-      setPaste(baseTextRef.current + finalRef.current + interim);
-      growArea();
-    };
-    r.onerror = (ev) => {
-      if (ev.error === "not-allowed" || ev.error === "service-not-allowed") {
-        say("Microphone is blocked. Allow mic access to dictate.");
-      } else if (ev.error !== "aborted" && ev.error !== "no-speech") {
-        say("Voice typing stopped");
-      }
-    };
-    r.onend = () => {
-      setListening(false);
-      recogRef.current = null;
-      setPaste((p) => p.replace(/[ ]+$/, ""));
-      growArea();
-    };
-    recogRef.current = r;
-    try {
-      r.start();
-      setListening(true);
-      say("Listening… speak your task");
-    } catch (e) {
-      setListening(false);
-    }
-  };
-
-  const toggleDictation = () => {
-    if (listening) stopDictation();
-    else startDictation();
-  };
-
-  // Cmd/Ctrl + Shift + M starts or stops dictation from anywhere on the page
-  useEffect(() => {
-    const onKey = (e) => {
-      if ((e.metaKey || e.ctrlKey) && e.shiftKey && (e.key === "m" || e.key === "M")) {
-        e.preventDefault();
-        toggleDictation();
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [listening, paste]);
-
-  // stop the mic if hana closes mid-listen
-  useEffect(() => {
-    return () => {
-      const r = recogRef.current;
-      if (r) {
-        try {
-          r.stop();
-        } catch (e) {
-          // ignore
-        }
-      }
-    };
-  }, []);
 
   // ----- small render pieces -----
   const Circle = ({ done, onClick, label }) => (
@@ -760,6 +675,23 @@ If there are no tasks, return {"new_tasks":[],"updates":[]}.`;
                 {t.project || "+ project"}
               </button>
             )}
+            {!t.done && (
+              <button
+                onClick={() => moveHolding(t.id, !t.holding)}
+                title={t.holding ? "Move back to Active" : "Move to Holding Tank"}
+                style={{
+                  fontSize: 11.5,
+                  color: C.sub,
+                  background: "transparent",
+                  border: `1px dashed ${C.line}`,
+                  borderRadius: 999,
+                  padding: "2px 8px",
+                  cursor: "pointer",
+                }}
+              >
+                {t.holding ? "→ Active" : "→ Tank"}
+              </button>
+            )}
           </div>
         </div>
         <button
@@ -812,7 +744,6 @@ If there are no tasks, return {"new_tasks":[],"updates":[]}.`;
         @import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;1,9..144,500&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
         *:focus-visible { outline: 2px solid ${C.accent}; outline-offset: 2px; border-radius: 4px; }
         textarea::placeholder { color: ${C.sub}; opacity: 0.8; }
-        @keyframes hana-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
         @media (prefers-reduced-motion: reduce) {
           * { transition: none !important; animation: none !important; }
         }
@@ -910,23 +841,26 @@ If there are no tasks, return {"new_tasks":[],"updates":[]}.`;
               Uncheck anything that doesn't belong, then press Add. If something you paste matches
               a task you already have, hana updates that task instead of making a duplicate.
             </p>
-            <div style={helpEyebrow}>Voice typing</div>
-            <p style={helpPara}>
-              Tap the mic by the paste box, or press ⌘⇧M (Ctrl+Shift+M), and speak your task
-              straight in. Press it again to stop. Your browser does the listening, so it asks
-              for microphone permission the first time.
-            </p>
             <div style={helpEyebrow}>Dates</div>
             <p style={helpPara}>
               New tasks land on today unless your text names a deadline. Tap any date pill to
               change it. Unfinished tasks move to today each time hana opens, so nothing slips
               into the past.
             </p>
+            <div style={helpEyebrow}>Active and the Holding Tank</div>
+            <p style={helpPara}>
+              hana keeps two lists behind the tabs at the top. Active is what you are working on
+              now or soon. The Holding Tank is a backlog for someday, on hold, or waiting-on
+              things. Tank tasks can still carry due dates, but they do not roll forward to today
+              like active ones do, so they wait quietly until you want them. Move any task with
+              → Tank or → Active, and when hana reads your pasted text it sorts clear backlog
+              items straight into the tank for you.
+            </p>
             <div style={helpEyebrow}>Everyday use</div>
             <p style={helpPara}>
               Tap the circle to finish a task. Finished tasks rest in the Pau section at the
-              bottom. Tap a title to reword it, tap + project to group it, and use the project
-              chips to filter. The × removes a task for good.
+              bottom of the Active tab. Tap a title to reword it, tap + project to group it, and
+              use the project chips to filter. The × removes a task for good.
             </p>
             <div style={helpEyebrow}>What you need</div>
             <p style={helpPara}>
@@ -994,39 +928,9 @@ If there are no tasks, return {"new_tasks":[],"updates":[]}.`;
             }}
           />
           <div className="flex items-center justify-between" style={{ marginTop: 6 }}>
-            <div className="flex items-center gap-2">
-              {speechSupport && (
-                <button
-                  onClick={toggleDictation}
-                  aria-label={listening ? "Stop voice typing" : "Start voice typing"}
-                  aria-pressed={listening}
-                  title={listening ? "Stop (⌘⇧M)" : "Speak your task (⌘⇧M)"}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    width: 30,
-                    height: 30,
-                    borderRadius: "50%",
-                    border: `1px solid ${listening ? C.danger : C.poolBorder}`,
-                    background: listening ? "#F7E3E0" : "#fff",
-                    color: listening ? C.danger : C.sub,
-                    cursor: "pointer",
-                    flexShrink: 0,
-                    animation: listening ? "hana-pulse 1.2s ease-in-out infinite" : "none",
-                  }}
-                >
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                    <rect x="9" y="3" width="6" height="11" rx="3" fill="currentColor" />
-                    <path d="M5 11a7 7 0 0 0 14 0" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-                    <path d="M12 18v3" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-                  </svg>
-                </button>
-              )}
-              <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: C.sub }}>
-                {listening ? "listening… ⌘⇧M to stop" : "⌘↵ to add · ⌘⇧M to speak"}
-              </span>
-            </div>
+            <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: C.sub }}>
+              ⌘↵ works too
+            </span>
             <button
               onClick={extract}
               disabled={!paste.trim() || busy}
@@ -1161,6 +1065,7 @@ If there are no tasks, return {"new_tasks":[],"updates":[]}.`;
                       >
                         {displayDate(n.due)}
                         {n.project ? ` · ${n.project}` : ""}
+                        {n.holding ? " · Tank" : ""}
                       </span>
                     </span>
                   </label>
@@ -1188,6 +1093,7 @@ If there are no tasks, return {"new_tasks":[],"updates":[]}.`;
                         {u.changes.due ? ` → ${displayDate(u.changes.due)}` : ""}
                         {u.changes.title ? ` → "${u.changes.title}"` : ""}
                         {u.changes.project ? ` → ${u.changes.project}` : ""}
+                        {u.changes.holding !== undefined ? (u.changes.holding ? " → Tank" : " → Active") : ""}
                       </span>
                     </span>
                   </label>
@@ -1230,9 +1136,49 @@ If there are no tasks, return {"new_tasks":[],"updates":[]}.`;
           </div>
         )}
 
+        {/* tabs: active vs holding tank */}
+        <div
+          className="flex gap-1"
+          style={{
+            marginTop: 20,
+            background: C.pool,
+            border: `1px solid ${C.poolBorder}`,
+            borderRadius: 999,
+            padding: 3,
+          }}
+        >
+          {[
+            { key: "active", label: "Active", n: activeOpen.length },
+            { key: "holding", label: "Holding Tank", n: heldOpen.length },
+          ].map((tb) => {
+            const on = tab === tb.key;
+            return (
+              <button
+                key={tb.key}
+                onClick={() => setTab(tb.key)}
+                aria-pressed={on}
+                className="flex-1"
+                style={{
+                  fontSize: 13,
+                  fontWeight: on ? 600 : 500,
+                  color: on ? "#fff" : C.sub,
+                  background: on ? C.accent : "transparent",
+                  border: "none",
+                  borderRadius: 999,
+                  padding: "6px 12px",
+                  cursor: "pointer",
+                  transition: "all 120ms ease",
+                }}
+              >
+                {tb.label} · {tb.n}
+              </button>
+            );
+          })}
+        </div>
+
         {/* project chips */}
         {projects.length > 0 && (
-          <div className="flex gap-2 overflow-x-auto" style={{ marginTop: 18, paddingBottom: 2 }}>
+          <div className="flex gap-2 overflow-x-auto" style={{ marginTop: 14, paddingBottom: 2 }}>
             {[null, ...projects].map((p) => {
               const active = filter === p;
               return (
@@ -1261,7 +1207,11 @@ If there are no tasks, return {"new_tasks":[],"updates":[]}.`;
         {/* list */}
         {loaded && visible.length === 0 && !review && (
           <div style={{ textAlign: "center", color: C.sub, fontSize: 14, padding: "48px 12px" }}>
-            {open.length === 0
+            {tab === "holding"
+              ? heldOpen.length === 0
+                ? "The Holding Tank is empty. Send tasks here with → Tank, or let hana sort them in."
+                : "Nothing in the tank for this project."
+              : activeOpen.length === 0
               ? "Nothing here yet. Paste anything above and hana will pull out the tasks."
               : "Nothing open in this project."}
           </div>
@@ -1287,8 +1237,8 @@ If there are no tasks, return {"new_tasks":[],"updates":[]}.`;
           </div>
         ))}
 
-        {/* pau */}
-        {pau.length > 0 && (
+        {/* pau (finished tasks live under the active tab) */}
+        {tab === "active" && pau.length > 0 && (
           <div style={{ marginTop: 28 }}>
             <div className="flex items-center justify-between" style={{ paddingBottom: 6, borderBottom: `1px solid ${C.line}` }}>
               <button
