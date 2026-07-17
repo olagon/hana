@@ -18,7 +18,7 @@ const C = {
 
 const KEY = "hana-data-v1";
 const WELCOME_KEY = "hana-welcome-v1";
-const APP_VERSION = "1.5.1";
+const APP_VERSION = "1.5.2";
 const MODEL = "claude-sonnet-4-6";
 
 // ---------- date helpers (local time, Honolulu-safe) ----------
@@ -987,24 +987,40 @@ If there are no tasks, return {"new_tasks":[],"updates":[]}.`;
             </p>
             <div style={helpEyebrow}>Move your data</div>
             <p style={helpPara}>
-              Export saves all your tasks to a small file, keeping every date, project, and
-              status, including which ones sit in the Holding Tank. Import reads that file, adds
-              any task you don't have yet, and updates the ones you do so their status and dates
-              match the file. That makes it a clean way to move between devices or restore a
-              backup. Since the file wins on a match, import a newer file, not an older one, when
-              you want to bring a copy up to date.
-            </p>
-            <div className="flex gap-2 flex-wrap" style={{ marginTop: 10 }}>
-              <button onClick={exportData} style={ghostBtn}>
-                Export tasks
-              </button>
+              Export saves all your tasks to a file, keeping every date, project, and status,
+              including which ones sit in the Holding Tank. Import reads it back, adds anything
+              new, and updates matches so their status and dates follow the file. It is how you
+              move between devices, keep a backup, or carry your tasks to a new version. Since
+              the file wins on a match, import a newer file, not an older one, to bring a copy up
+              to date. The Export and Import buttons live on the{" "}
               <button
-                onClick={() => fileRef.current && fileRef.current.click()}
-                style={ghostBtn}
+                onClick={() => {
+                  setShowHelp(false);
+                  setShowUpgrade(true);
+                }}
+                style={{
+                  background: "none",
+                  border: "none",
+                  padding: 0,
+                  color: C.accent,
+                  textDecoration: "underline",
+                  cursor: "pointer",
+                  font: "inherit",
+                }}
               >
-                Import tasks
+                upgrade page
               </button>
-            </div>
+              .
+            </p>
+            <div style={helpEyebrow}>Your data and privacy</div>
+            <p style={helpPara}>
+              hana has no server of its own. There is no hana backend, no database, no analytics,
+              and no tracking. Nobody, not even the person who built hana, can see your tasks or
+              knows who you are. Your tasks are saved privately in your own Claude account and go
+              nowhere else. The one thing that ever leaves is the text you paste, which is sent to
+              Claude to be read into tasks, exactly like any message you send Claude, and nowhere
+              else. Export and Import are plain files that only you hold.
+            </p>
           </div>
         )}
 
@@ -1047,8 +1063,8 @@ If there are no tasks, return {"new_tasks":[],"updates":[]}.`;
             <p style={helpPara}>
               hana runs entirely on your own Claude account, so your tasks live with the copy at
               its link, not on a server we run. A new link is a fresh copy, so carry your tasks
-              over. On your current copy press Export, then open the new link and press Import.
-              Your tasks, dates, projects, done, and Holding Tank all come across.
+              over. Press Export below, then open the new link and press Import there. Your tasks,
+              dates, projects, done, and Holding Tank all come across.
             </p>
             <div style={helpEyebrow}>Good to know</div>
             <p style={helpPara}>
@@ -1647,10 +1663,17 @@ If there are no tasks, return {"new_tasks":[],"updates":[]}.`;
               small bit of your own plan's usage. Your tasks stay private to you and show up on
               any device where you open this link.
             </p>
+            <div style={helpEyebrow}>Private by default</div>
+            <p style={helpPara}>
+              hana has no server, no database, and no tracking. Nobody, including its maker, can
+              see your tasks or knows who you are. The only thing that ever leaves is the text you
+              paste, sent to Claude to read it, just like any Claude message, and nowhere else.
+            </p>
             <div style={helpEyebrow}>Nothing is locked in</div>
             <p style={helpPara}>
               Export saves your tasks to a file and Import brings them into another copy of
-              hana. Both live on the help page, along with everything you just read.
+              hana. Both live on the upgrade page, along with the full story on moving between
+              versions.
             </p>
             <div style={helpEyebrow}>It keeps getting better</div>
             <p style={helpPara}>
