@@ -18,7 +18,7 @@ const C = {
 
 const KEY = "hana-data-v1";
 const WELCOME_KEY = "hana-welcome-v1";
-const APP_VERSION = "1.5.0";
+const APP_VERSION = "1.5.1";
 const MODEL = "claude-sonnet-4-6";
 
 // ---------- date helpers (local time, Honolulu-safe) ----------
@@ -1033,22 +1033,31 @@ If there are no tasks, return {"new_tasks":[],"updates":[]}.`;
             </div>
             <p style={helpPara}>
               hana is one small file, shared as a live Claude artifact and kept open source on
-              GitHub. When there is a new version, the latest live link is posted on the GitHub
-              page. Open that link and you have the newest hana.
+              GitHub. Each version is published as its own artifact with its own web address.
+              Claude does not offer a way to replace a published artifact in place, so every new
+              version has a new link. There is no in-app auto-update.
+            </p>
+            <div style={helpEyebrow}>Getting the latest</div>
+            <p style={helpPara}>
+              The newest link always lives on the GitHub page. When you want to move up, open
+              GitHub, grab the current link, and use hana from there. Nothing forces you to, an
+              older copy keeps working, you just miss newer features.
             </p>
             <div style={helpEyebrow}>Bring your tasks along</div>
             <p style={helpPara}>
-              hana runs entirely on your own Claude account, so your tasks live with your copy,
-              not on a server we run. When you move to a new version, carry them over. On your
-              current copy open help and press Export, then open the new link and press Import.
-              Your tasks, dates, projects, and Holding Tank all come across.
+              hana runs entirely on your own Claude account, so your tasks live with the copy at
+              its link, not on a server we run. A new link is a fresh copy, so carry your tasks
+              over. On your current copy press Export, then open the new link and press Import.
+              Your tasks, dates, projects, done, and Holding Tank all come across.
             </p>
-            <div style={helpEyebrow}>Why it works this way</div>
+            <div style={helpEyebrow}>Good to know</div>
             <p style={helpPara}>
-              No shared database and no backend means hana stays free and private, using only
-              your own plan's normal usage and nobody else's. The trade is that a new version is
-              a fresh copy, so you move your tasks in once. Upgrades will not be frequent, so this
-              is a rare, quick step rather than a routine chore.
+              A few honest limits. Links do not sync, tasks stay with the copy you are on, and
+              export then import is the bridge between links or devices. hana cannot notify you
+              inside the app when a new version lands, so check GitHub now and then. And because
+              it leans on your own Claude account with no shared backend, it stays free and
+              private, which is the same reason there is no central switch to push updates. Good
+              news is upgrades will not be frequent, so this is a rare, quick step.
             </p>
             <div className="flex gap-2 flex-wrap" style={{ marginTop: 12 }}>
               <button onClick={exportData} style={ghostBtn}>
@@ -1654,8 +1663,10 @@ If there are no tasks, return {"new_tasks":[],"updates":[]}.`;
               >
                 Olin Lagon on LinkedIn
               </a>
-              . New versions come out now and then, posted as a fresh live link on GitHub. See
-              the upgrade page up top for how to move your tasks over when one lands.
+              . New versions come out now and then. Each one is a new link on GitHub, since
+              Claude artifacts cannot update in place, and hana cannot auto-update or notify you.
+              When you want the latest, grab the new link and move your tasks with Export then
+              Import. The upgrade page up top has the details.
             </p>
             <button
               ref={splashBtnRef}
