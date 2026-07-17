@@ -18,7 +18,7 @@ const C = {
 
 const KEY = "hana-data-v1";
 const WELCOME_KEY = "hana-welcome-v1";
-const APP_VERSION = "1.4.0";
+const APP_VERSION = "1.4.1";
 const MODEL = "claude-sonnet-4-6";
 
 // ---------- date helpers (local time, Honolulu-safe) ----------
@@ -1400,7 +1400,7 @@ If there are no tasks, return {"new_tasks":[],"updates":[]}.`;
                 fontFamily: "'IBM Plex Mono', monospace",
               }}
             >
-              Dates stay where you set them. Anything overdue waits under Late.
+              Paste the mess. Get the list.
             </div>
           )}
           <div
