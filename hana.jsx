@@ -18,7 +18,7 @@ const C = {
 
 const KEY = "hana-data-v1";
 const WELCOME_KEY = "hana-welcome-v1";
-const APP_VERSION = "1.4.1";
+const APP_VERSION = "1.4.2";
 const MODEL = "claude-sonnet-4-6";
 
 // ---------- date helpers (local time, Honolulu-safe) ----------
@@ -452,39 +452,78 @@ If there are no tasks, return {"new_tasks":[],"updates":[]}.`;
         : null;
       if (!incoming) throw new Error("bad file");
       const t = todayStr();
-      const existingIds = new Set(tasks.map((x) => x.id));
-      const cleaned = incoming
-        .filter((x) => x && typeof x.title === "string" && x.title.trim())
-        .map((x) => {
-          const done = !!x.done;
-          const holding = x.holding === true;
-          let due = isDateStr(x.due) ? x.due : addDays(t, 7);
-          if (!done && !holding && due < t) due = t;
-          return {
-            id: typeof x.id === "string" && x.id ? x.id : uid(),
-            title: x.title.trim(),
-            project:
-              typeof x.project === "string" && x.project.trim() ? x.project.trim() : null,
-            notes: typeof x.notes === "string" ? x.notes : "",
-            due,
-            holding,
-            done,
-            createdAt:
-              typeof x.createdAt === "string" ? x.createdAt : new Date().toISOString(),
-            completedAt: done
-              ? typeof x.completedAt === "string"
-                ? x.completedAt
-                : new Date().toISOString()
+      const prevById = new Map(tasks.map((tk) => [tk.id, tk]));
+      const has = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
+      // Build each incoming task. For a task we already have, the file wins on
+      // any field it actually carries, and we keep our current value for fields
+      // the file leaves out. This restores done/holding/date/project cleanly and
+      // never demotes a tank task just because an older file predates the tank.
+      const build = (x) => {
+        const id = typeof x.id === "string" && x.id ? x.id : uid();
+        const prev = prevById.get(id);
+        const done = has(x, "done") ? !!x.done : !!(prev && prev.done);
+        const holding = has(x, "holding") ? x.holding === true : !!(prev && prev.holding);
+        const due = isDateStr(x.due)
+          ? x.due
+          : prev && isDateStr(prev.due)
+          ? prev.due
+          : t;
+        return {
+          id,
+          title: x.title.trim(),
+          project:
+            typeof x.project === "string" && x.project.trim()
+              ? x.project.trim()
+              : prev
+              ? prev.project
               : null,
-          };
-        })
-        .filter((x) => !existingIds.has(x.id));
-      if (cleaned.length === 0) {
-        say("Nothing new in that file");
+          notes: typeof x.notes === "string" ? x.notes : prev ? prev.notes : "",
+          due,
+          holding,
+          done,
+          createdAt:
+            typeof x.createdAt === "string"
+              ? x.createdAt
+              : prev && prev.createdAt
+              ? prev.createdAt
+              : new Date().toISOString(),
+          completedAt: done
+            ? typeof x.completedAt === "string"
+              ? x.completedAt
+              : prev && prev.completedAt
+              ? prev.completedAt
+              : new Date().toISOString()
+            : null,
+        };
+      };
+      const builtById = new Map();
+      incoming
+        .filter((x) => x && typeof x.title === "string" && x.title.trim())
+        .forEach((x) => {
+          const b = build(x);
+          builtById.set(b.id, b);
+        });
+      let updated = 0;
+      const next = tasks.map((tk) => {
+        if (builtById.has(tk.id)) {
+          updated += 1;
+          return builtById.get(tk.id);
+        }
+        return tk;
+      });
+      const brandNew = [];
+      builtById.forEach((b, id) => {
+        if (!prevById.has(id)) brandNew.push(b);
+      });
+      if (brandNew.length === 0 && updated === 0) {
+        say("Nothing to import");
         return;
       }
-      mutate([...tasks, ...cleaned]);
-      say(`Imported ${cleaned.length} ${cleaned.length === 1 ? "task" : "tasks"}`);
+      mutate([...next, ...brandNew]);
+      const parts = [];
+      if (brandNew.length) parts.push(`Imported ${brandNew.length}`);
+      if (updated) parts.push(`updated ${updated}`);
+      say(parts.join(" · "));
     } catch (err) {
       say("Couldn't read that file");
     }
@@ -916,9 +955,12 @@ If there are no tasks, return {"new_tasks":[],"updates":[]}.`;
             </p>
             <div style={helpEyebrow}>Move your data</div>
             <p style={helpPara}>
-              Export saves all your tasks to a small file. Import reads that file and adds
-              anything you don't already have, handy for moving between devices or between copies
-              of hana.
+              Export saves all your tasks to a small file, keeping every date, project, and
+              status, including which ones sit in the Holding Tank. Import reads that file, adds
+              any task you don't have yet, and updates the ones you do so their status and dates
+              match the file. That makes it a clean way to move between devices or restore a
+              backup. Since the file wins on a match, import a newer file, not an older one, when
+              you want to bring a copy up to date.
             </p>
             <div className="flex gap-2 flex-wrap" style={{ marginTop: 10 }}>
               <button onClick={exportData} style={ghostBtn}>
