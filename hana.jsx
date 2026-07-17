@@ -18,7 +18,7 @@ const C = {
 
 const KEY = "hana-data-v1";
 const WELCOME_KEY = "hana-welcome-v1";
-const APP_VERSION = "1.1.0";
+const APP_VERSION = "1.1.1";
 const MODEL = "claude-sonnet-4-6";
 
 // ---------- date helpers (local time, Honolulu-safe) ----------
