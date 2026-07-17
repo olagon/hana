@@ -18,7 +18,7 @@ const C = {
 
 const KEY = "hana-data-v1";
 const WELCOME_KEY = "hana-welcome-v1";
-const APP_VERSION = "1.4.2";
+const APP_VERSION = "1.5.0";
 const MODEL = "claude-sonnet-4-6";
 
 // ---------- date helpers (local time, Honolulu-safe) ----------
@@ -64,6 +64,7 @@ export default function Hana() {
   const [err, setErr] = useState("");
   const [showPau, setShowPau] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
+  const [showUpgrade, setShowUpgrade] = useState(false);
   const [showSplash, setShowSplash] = useState(false);
   const [editing, setEditing] = useState(null); // { id, field }
   const [editVal, setEditVal] = useState("");
@@ -560,15 +561,18 @@ If there are no tasks, return {"new_tasks":[],"updates":[]}.`;
     }
   };
 
-  // Escape leaves the help page and goes back to the tasks
+  // Escape leaves the help or upgrade page and goes back to the tasks
   useEffect(() => {
-    if (!showHelp) return;
+    if (!showHelp && !showUpgrade) return;
     const onKey = (e) => {
-      if (e.key === "Escape") setShowHelp(false);
+      if (e.key === "Escape") {
+        setShowHelp(false);
+        setShowUpgrade(false);
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [showHelp]);
+  }, [showHelp, showUpgrade]);
 
   // ----- small render pieces -----
   const Circle = ({ done, onClick, label }) => (
@@ -817,6 +821,13 @@ If there are no tasks, return {"new_tasks":[],"updates":[]}.`;
           <option key={p} value={p} />
         ))}
       </datalist>
+      <input
+        ref={fileRef}
+        type="file"
+        accept=".json,application/json"
+        onChange={importData}
+        style={{ display: "none" }}
+      />
 
       <div className="mx-auto px-4 pb-24" style={{ maxWidth: 640 }}>
         {/* header */}
@@ -835,7 +846,28 @@ If there are no tasks, return {"new_tasks":[],"updates":[]}.`;
           </h1>
           <div className="flex items-baseline gap-3">
             <button
-              onClick={() => setShowHelp((s) => !s)}
+              onClick={() => {
+                setShowUpgrade((s) => !s);
+                setShowHelp(false);
+              }}
+              style={{
+                fontFamily: "'IBM Plex Mono', monospace",
+                fontSize: 12,
+                color: showUpgrade ? C.accent : C.sub,
+                background: "none",
+                border: "none",
+                cursor: "pointer",
+                padding: 0,
+                textDecoration: "underline",
+              }}
+            >
+              {showUpgrade ? "back to tasks" : "upgrade"}
+            </button>
+            <button
+              onClick={() => {
+                setShowHelp((s) => !s);
+                setShowUpgrade(false);
+              }}
               style={{
                 fontFamily: "'IBM Plex Mono', monospace",
                 fontSize: 12,
@@ -972,18 +1004,75 @@ If there are no tasks, return {"new_tasks":[],"updates":[]}.`;
               >
                 Import tasks
               </button>
-              <input
-                ref={fileRef}
-                type="file"
-                accept=".json,application/json"
-                onChange={importData}
-                style={{ display: "none" }}
-              />
             </div>
           </div>
         )}
 
-        {!showHelp && (
+        {/* upgrade page */}
+        {showUpgrade && (
+          <div
+            style={{
+              background: C.card,
+              border: `1px solid ${C.line}`,
+              borderRadius: 14,
+              padding: "20px 18px",
+              fontSize: 14.5,
+              lineHeight: 1.65,
+            }}
+          >
+            <div
+              style={{
+                fontFamily: "'Fraunces', serif",
+                fontStyle: "italic",
+                fontWeight: 500,
+                fontSize: 21,
+                marginBottom: 10,
+              }}
+            >
+              How hana upgrades
+            </div>
+            <p style={helpPara}>
+              hana is one small file, shared as a live Claude artifact and kept open source on
+              GitHub. When there is a new version, the latest live link is posted on the GitHub
+              page. Open that link and you have the newest hana.
+            </p>
+            <div style={helpEyebrow}>Bring your tasks along</div>
+            <p style={helpPara}>
+              hana runs entirely on your own Claude account, so your tasks live with your copy,
+              not on a server we run. When you move to a new version, carry them over. On your
+              current copy open help and press Export, then open the new link and press Import.
+              Your tasks, dates, projects, and Holding Tank all come across.
+            </p>
+            <div style={helpEyebrow}>Why it works this way</div>
+            <p style={helpPara}>
+              No shared database and no backend means hana stays free and private, using only
+              your own plan's normal usage and nobody else's. The trade is that a new version is
+              a fresh copy, so you move your tasks in once. Upgrades will not be frequent, so this
+              is a rare, quick step rather than a routine chore.
+            </p>
+            <div className="flex gap-2 flex-wrap" style={{ marginTop: 12 }}>
+              <button onClick={exportData} style={ghostBtn}>
+                Export tasks
+              </button>
+              <button
+                onClick={() => fileRef.current && fileRef.current.click()}
+                style={ghostBtn}
+              >
+                Import tasks
+              </button>
+              <a
+                href="https://github.com/olagon/hana"
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ ...ghostBtn, textDecoration: "none", display: "inline-block" }}
+              >
+                Latest link on GitHub
+              </a>
+            </div>
+          </div>
+        )}
+
+        {!showHelp && !showUpgrade && (
           <>
         {/* the pool */}
         <div
@@ -1434,7 +1523,7 @@ If there are no tasks, return {"new_tasks":[],"updates":[]}.`;
 
         {/* footer note */}
         <div style={{ marginTop: 36, textAlign: "center" }}>
-          {!showHelp && (
+          {!showHelp && !showUpgrade && (
             <div
               style={{
                 fontSize: 12,
@@ -1565,8 +1654,8 @@ If there are no tasks, return {"new_tasks":[],"updates":[]}.`;
               >
                 Olin Lagon on LinkedIn
               </a>
-              . Improvements are pushed automatically to this running copy, so you always have
-              the latest version without lifting a finger.
+              . New versions come out now and then, posted as a fresh live link on GitHub. See
+              the upgrade page up top for how to move your tasks over when one lands.
             </p>
             <button
               ref={splashBtnRef}
