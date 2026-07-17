@@ -5,7 +5,7 @@ notes, or a single line like "call the vet Friday" and hana pulls out the
 real tasks, merges them with what you already have, and keeps everything
 moving forward.
 
-**Use it live:** https://claude.ai/public/artifacts/3ccbbdd1-06e2-446d-b1e6-0b97d4313ee9
+**Use it live:** https://claude.ai/public/artifacts/f03289e7-f8f0-4b92-892a-d0c082ce953b
 
 ## What it does
 
