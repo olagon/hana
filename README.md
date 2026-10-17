@@ -8,7 +8,8 @@ moving forward.
 **Use it live:** https://claude.ai/public/artifacts/f03289e7-f8f0-4b92-892a-d0c082ce953b
 
 **hana local (runs entirely on your device, nothing leaves it):**
-https://olagon.github.io/hana/local.html
+https://olagon.github.io/hana-local/
+A separate open source repo, [olagon/hana-local](https://github.com/olagon/hana-local).
 A single page that runs an open source model in your browser with WebGPU.
 Same features, same export file format, plus a model picker with storage
 cleanup, a manual add that skips the model, voice capture, and keyboard
