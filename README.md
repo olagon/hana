@@ -7,6 +7,13 @@ moving forward.
 
 **Use it live:** https://claude.ai/public/artifacts/f03289e7-f8f0-4b92-892a-d0c082ce953b
 
+**hana local (runs entirely on your device, nothing leaves it):**
+https://olagon.github.io/hana/local.html
+A single page that runs an open source model in your browser with WebGPU.
+Same features, same export file format, plus a model picker with storage
+cleanup, a manual add that skips the model, voice capture, and keyboard
+shortcuts. Best on a laptop or desktop with Chrome, Edge, or a recent Safari.
+
 ## What it does
 
 - **Paste anything.** hana reads emails, notes, and plain text, then shows
